@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Shield, AlertTriangle, TrendingUp, Wallet, ChevronRight } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { MOCK_TEEN, MOCK_TRANSACTIONS, MOCK_ALERTS, MOCK_RISK_HISTORY } from '@/lib/mock-data';
+import { dbApi } from '@/lib/db-api';
 import { getRiskLevel } from '@/lib/risk-engine';
 import RiskMeter from '@/components/RiskMeter';
 import TransactionList from '@/components/TransactionList';
@@ -18,9 +18,48 @@ const scamDistribution = [
 ];
 
 const TeenDashboard = () => {
-  const teen = MOCK_TEEN;
-  const riskLevel = getRiskLevel(teen.riskScore);
+  const [teen, setTeen] = useState<any>(null);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [meData, txData, alertsData] = await Promise.all([
+          dbApi.getMe(),
+          dbApi.getTransactions(),
+          dbApi.getAlerts()
+        ]);
+        setTeen(meData);
+        setTransactions(txData);
+        setAlerts(alertsData);
+      } catch (error) {
+        console.error('Failed to load dashboard data', error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchData();
+    const interval = setInterval(fetchData, 3000); // 3 second UI refresh cycle
+    return () => clearInterval(interval);
+  }, []);
+
+  if (isLoading || !teen) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  // map risk score field from snake_case db to camelCase if needed depending on risk-engine requirements
+  const riskScore = teen.risk_score !== undefined ? teen.risk_score : teen.riskScore;
+  const freezeProb = teen.freeze_probability !== undefined ? teen.freeze_probability : teen.freezeProbability;
+
+  const riskLevel = getRiskLevel(riskScore);
 
   return (
     <div className="min-h-screen pb-24 px-4 pt-6 max-w-lg mx-auto space-y-5">
@@ -51,17 +90,16 @@ const TeenDashboard = () => {
         </p>
         <div className="flex items-center gap-4 mt-3">
           <div className="flex items-center gap-1.5">
-            <div className={`w-2 h-2 rounded-full ${
-              riskLevel === 'safe' ? 'bg-safe' : riskLevel === 'warning' ? 'bg-warning' : 'bg-destructive'
-            }`} />
+            <div className={`w-2 h-2 rounded-full ${riskLevel === 'safe' ? 'bg-safe' : riskLevel === 'warning' ? 'bg-warning' : 'bg-destructive'
+              }`} />
             <span className="text-xs text-muted-foreground">
               {riskLevel === 'safe' ? 'Account Safe' : riskLevel === 'warning' ? 'Moderate Risk' : 'High Risk'}
             </span>
           </div>
-          {teen.freezeProbability > 30 && (
+          {freezeProb > 30 && (
             <div className="flex items-center gap-1 text-warning">
               <AlertTriangle className="w-3 h-3" />
-              <span className="text-xs font-medium">Freeze risk {teen.freezeProbability}%</span>
+              <span className="text-xs font-medium">Freeze risk {freezeProb}%</span>
             </div>
           )}
         </div>
@@ -76,8 +114,8 @@ const TeenDashboard = () => {
       >
         <h2 className="text-sm font-semibold mb-4">Risk Overview</h2>
         <div className="flex justify-around">
-          <RiskMeter score={teen.riskScore} label="Risk Score" />
-          <RiskMeter score={teen.freezeProbability} label="Freeze Prob." />
+          <RiskMeter score={riskScore} label="Risk Score" />
+          <RiskMeter score={freezeProb} label="Freeze Prob." />
         </div>
       </motion.div>
 
@@ -93,7 +131,13 @@ const TeenDashboard = () => {
           <TrendingUp className="w-4 h-4 text-muted-foreground" />
         </div>
         <ResponsiveContainer width="100%" height={140}>
-          <LineChart data={MOCK_RISK_HISTORY}>
+          <LineChart data={[
+            { date: '2023-10-01', riskScore: 20, freezeProbability: 5 },
+            { date: '2023-10-05', riskScore: 22, freezeProbability: 6 },
+            { date: '2023-10-10', riskScore: 45, freezeProbability: 15 },
+            { date: '2023-10-15', riskScore: 30, freezeProbability: 10 },
+            { date: '2023-10-20', riskScore: riskScore || 25, freezeProbability: freezeProb || 8 }
+          ]}>
             <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'hsl(215, 20%, 55%)' }} tickFormatter={d => d.slice(8)} axisLine={false} tickLine={false} />
             <YAxis hide domain={[0, 100]} />
             <Line type="monotone" dataKey="riskScore" stroke="hsl(160, 84%, 44%)" strokeWidth={2} dot={false} />
@@ -145,7 +189,7 @@ const TeenDashboard = () => {
       </motion.div>
 
       {/* Fraud Alerts */}
-      {MOCK_ALERTS.filter(a => !a.read).length > 0 && (
+      {alerts.length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -153,17 +197,15 @@ const TeenDashboard = () => {
           className="space-y-2"
         >
           <h2 className="text-sm font-semibold">Active Alerts</h2>
-          {MOCK_ALERTS.filter(a => !a.read).map((alert) => (
+          {alerts.map((alert) => (
             <div
               key={alert.id}
-              className={`glass-card p-3.5 border-l-4 ${
-                alert.severity === 'critical' ? 'border-l-destructive glow-red' : 'border-l-warning glow-amber'
-              }`}
+              className={`glass-card p-3.5 border-l-4 ${alert.severity === 'critical' ? 'border-l-destructive glow-red' : 'border-l-warning glow-amber'
+                }`}
             >
               <div className="flex items-start gap-2">
-                <AlertTriangle className={`w-4 h-4 mt-0.5 shrink-0 ${
-                  alert.severity === 'critical' ? 'text-destructive' : 'text-warning'
-                }`} />
+                <AlertTriangle className={`w-4 h-4 mt-0.5 shrink-0 ${alert.severity === 'critical' ? 'text-destructive' : 'text-warning'
+                  }`} />
                 <div>
                   <p className="text-xs font-medium">{alert.message}</p>
                   <p className="text-[10px] text-muted-foreground mt-1">
@@ -186,7 +228,7 @@ const TeenDashboard = () => {
           <h2 className="text-sm font-semibold">Recent Transactions</h2>
           <ChevronRight className="w-4 h-4 text-muted-foreground" />
         </div>
-        <TransactionList transactions={MOCK_TRANSACTIONS} onSelect={setSelectedTx} />
+        <TransactionList transactions={transactions} onSelect={setSelectedTx} />
       </motion.div>
 
       {/* Transaction Detail Modal */}

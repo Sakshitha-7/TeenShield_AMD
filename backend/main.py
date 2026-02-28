@@ -109,23 +109,43 @@ async def predict_transaction(features: TransactionFeatures):
     try:
         df = _build_dataframe(features)
 
+        def align_features(model, input_df):
+            expected_features = getattr(model, "feature_names_in_", None)
+            if expected_features is not None:
+                # Add missing columns safely 
+                missing = [col for col in expected_features if col not in input_df.columns]
+                if missing:
+                    import pandas as pd
+                    # create empty df of missing with same index
+                    missing_df = pd.DataFrame(0, index=input_df.index, columns=missing)
+                    input_df = pd.concat([input_df, missing_df], axis=1)
+                
+                return input_df[expected_features].values
+            return input_df.values
+
         # 1) Mule probability
-        mule_prob = float(models["mule"].predict_proba(df)[:, 1][0])
+        mule_arr = align_features(models["mule"], df)
+        mule_prob = float(models["mule"].predict_proba(mule_arr)[:, 1][0])
 
         # 2) Freeze probability
-        freeze_prob = float(models["freeze"].predict_proba(df)[:, 1][0])
+        freeze_arr = align_features(models["freeze"], df)
+        freeze_prob = float(models["freeze"].predict_proba(freeze_arr)[:, 1][0])
 
         # 3) Scam classification
         # The meta model may expect mule_prob and freeze_prob as extra features
-        # Try with the base features first; if column mismatch, add derived cols
         try:
             meta_input = df.copy()
             meta_input["mule_probability"] = mule_prob
             meta_input["freeze_probability"] = freeze_prob
-            scam_encoded = models["meta"].predict(meta_input)[0]
-        except Exception:
+            
+            # Align features exactly as expected by the meta model
+            meta_arr = align_features(models["meta"], meta_input)
+                
+            scam_encoded = models["meta"].predict(meta_arr)[0]
+        except Exception as e:
             # Fallback: use base features only
-            scam_encoded = models["meta"].predict(df)[0]
+            base_arr = align_features(models["meta"], df)
+            scam_encoded = models["meta"].predict(base_arr)[0]
 
         scam_type = models["label_encoder"].inverse_transform([scam_encoded])[0]
 

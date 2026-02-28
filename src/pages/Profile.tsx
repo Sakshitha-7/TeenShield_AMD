@@ -1,11 +1,32 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { LogOut, Shield, User, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { MOCK_TEEN, MOCK_PARENT } from '@/lib/mock-data';
+import { dbApi } from '@/lib/db-api';
 
 const Profile = () => {
   const { role, logout } = useAuth();
-  const user = role === 'teen' ? MOCK_TEEN : MOCK_PARENT;
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    async function loadUser() {
+      try {
+        const data = await dbApi.getMe();
+        setUser(data);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    loadUser();
+  }, []);
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-background text-foreground">
+        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen pb-24 px-4 pt-6 max-w-lg mx-auto space-y-5">

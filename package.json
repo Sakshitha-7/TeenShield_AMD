@@ -10,7 +10,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "start:backend": "cd backend && ..\\.venv\\Scripts\\python.exe -m uvicorn main:app --reload",
+    "start:db": "npm --prefix ./node-api start"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

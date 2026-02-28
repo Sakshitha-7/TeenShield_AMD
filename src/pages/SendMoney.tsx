@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Send, ArrowRight, AlertTriangle, MapPin, Wifi, WifiOff } from 'lucide-react';
 import { detectScamCategory, simulateSenderRisk, calculateRiskScore, calculateFreezeProbability, getRiskLevel } from '@/lib/risk-engine';
 import { SCAM_LABELS, type ScamCategory } from '@/lib/types';
 import { predictTransaction, buildFeatures } from '@/lib/api';
+import { dbApi } from '@/lib/db-api';
 import RiskMeter from '@/components/RiskMeter';
 import CooldownTimer from '@/components/CooldownTimer';
 
@@ -30,6 +31,16 @@ const SendMoney = () => {
   const [recipient, setRecipient] = useState('');
   const [description, setDescription] = useState('');
   const [recipientState, setRecipientState] = useState('CA');
+  const [balance, setBalance] = useState(0);
+
+  // Fetch balance on mount
+  useEffect(() => {
+    dbApi.getMe().then(data => {
+      if (data && data.balance) {
+        setBalance(data.balance);
+      }
+    }).catch(err => console.error("Could not fetch balance for validation"));
+  }, []);
   const [analysis, setAnalysis] = useState<{
     riskScore: number;
     freezeProb: number;
@@ -38,9 +49,20 @@ const SendMoney = () => {
   } | null>(null);
 
   const handleAnalyze = async () => {
+    const amt = parseFloat(amount);
+
+    if (isNaN(amt) || amt <= 0) {
+      alert("Please enter a valid amount greater than $0.");
+      return;
+    }
+
+    if (amt > balance) {
+      alert(`Insufficient funds! Your balance is $${balance.toLocaleString()}`);
+      return;
+    }
+
     setIsLoading(true);
     const crossState = recipientState !== 'CA';
-    const amt = parseFloat(amount);
 
     try {
       // Try the real FastAPI backend first
@@ -96,8 +118,30 @@ const SendMoney = () => {
     setStep('analysis');
   }, []);
 
-  const handleConfirm = () => {
-    setStep('done');
+  const handleConfirm = async () => {
+    setIsLoading(true);
+    try {
+      const status = analysis?.needsParent ? 'pending_parent' : 'completed';
+
+      await dbApi.createTransaction({
+        recipient,
+        amount: parseFloat(amount),
+        description,
+        risk_score: analysis?.riskScore || 0,
+        freeze_probability: analysis?.freezeProb || 0,
+        scam_category: analysis?.scamCategory || 'none',
+        status,
+        cross_state_flag: recipientState !== 'CA',
+        receiver_state: recipientState
+      });
+
+      setStep('done');
+    } catch (error) {
+      console.error('Failed to submit transaction', error);
+      alert('Failed to submit transaction');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (step === 'done') {
@@ -134,8 +178,11 @@ const SendMoney = () => {
               <input value={recipient} onChange={e => setRecipient(e.target.value)} placeholder="Name or ID" className="w-full px-3.5 py-2.5 rounded-lg bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Amount ($)</label>
-              <input value={amount} onChange={e => setAmount(e.target.value)} type="number" placeholder="0.00" className="w-full px-3.5 py-2.5 rounded-lg bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 font-mono" />
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 flex justify-between">
+                <span>Amount ($)</span>
+                <span className="text-primary font-bold">Avail: ${balance.toLocaleString()}</span>
+              </label>
+              <input value={amount} onChange={e => setAmount(e.target.value)} type="number" placeholder="0.00" min="0.01" max={balance} className="w-full px-3.5 py-2.5 rounded-lg bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 font-mono" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Description</label>
@@ -160,9 +207,8 @@ const SendMoney = () => {
           <button
             onClick={handleAnalyze}
             disabled={!amount || !recipient || isLoading}
-            className={`w-full py-3.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-all ${
-              amount && recipient && !isLoading ? 'gradient-primary text-primary-foreground glow-green' : 'bg-muted text-muted-foreground cursor-not-allowed'
-            }`}
+            className={`w-full py-3.5 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 transition-all ${amount && recipient && !isLoading ? 'gradient-primary text-primary-foreground glow-green' : 'bg-muted text-muted-foreground cursor-not-allowed'
+              }`}
           >
             {isLoading ? 'Analyzing…' : 'Analyze & Send'} <ArrowRight className="w-4 h-4" />
           </button>
@@ -183,7 +229,7 @@ const SendMoney = () => {
                 <span className="text-sm font-bold text-destructive">Scam Warning</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                This transaction matches patterns associated with <strong className="text-foreground">{SCAM_LABELS[analysis.scamCategory]}</strong>. 
+                This transaction matches patterns associated with <strong className="text-foreground">{SCAM_LABELS[analysis.scamCategory]}</strong>.
                 Proceeding could increase your account freeze probability and may involve you in a fraud network.
               </p>
             </div>
@@ -223,9 +269,8 @@ const SendMoney = () => {
             <button onClick={() => { setStep('form'); setAnalysis(null); }} className="flex-1 py-3 rounded-lg bg-secondary text-secondary-foreground text-sm font-semibold">
               Cancel
             </button>
-            <button onClick={handleConfirm} className={`flex-1 py-3 rounded-lg text-sm font-semibold ${
-              getRiskLevel(analysis.riskScore) === 'danger' ? 'gradient-danger text-danger-foreground glow-red' : 'gradient-primary text-primary-foreground glow-green'
-            }`}>
+            <button onClick={handleConfirm} className={`flex-1 py-3 rounded-lg text-sm font-semibold ${getRiskLevel(analysis.riskScore) === 'danger' ? 'gradient-danger text-danger-foreground glow-red' : 'gradient-primary text-primary-foreground glow-green'
+              }`}>
               {analysis.needsParent ? 'Request Approval' : 'Confirm Send'}
             </button>
           </div>

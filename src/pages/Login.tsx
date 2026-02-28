@@ -7,9 +7,22 @@ import type { UserRole } from '@/lib/types';
 const Login = () => {
   const { login } = useAuth();
   const [selected, setSelected] = useState<UserRole | null>(null);
+  const [email, setEmail] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleLogin = () => {
-    if (selected) login(selected);
+  const handleLogin = async () => {
+    if (!selected || !email) return;
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      await login(email, selected);
+    } catch (err: any) {
+      setError(err.message || 'Login failed');
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -45,23 +58,23 @@ const Login = () => {
           <div className="grid grid-cols-2 gap-3">
             <motion.button
               whileTap={{ scale: 0.97 }}
-              onClick={() => setSelected('teen')}
-              className={`glass-card p-5 flex flex-col items-center gap-3 transition-all duration-200 ${
-                selected === 'teen' ? 'border-primary glow-green' : 'hover:border-muted-foreground/30'
-              }`}
+              onClick={() => { setSelected('teen'); setEmail('Aditya@example.com'); setError(''); }}
+              className={`glass-card p-5 flex flex-col items-center gap-3 transition-all duration-200 ${selected === 'teen' && email === 'aarav@example.com' ? 'border-primary glow-green' : 'hover:border-muted-foreground/30'
+                }`}
             >
-              <User className={`w-7 h-7 ${selected === 'teen' ? 'text-primary' : 'text-muted-foreground'}`} />
-              <span className={`text-sm font-semibold ${selected === 'teen' ? 'text-primary' : 'text-foreground'}`}>
+              <User className={`w-7 h-7 ${selected === 'teen' && email === 'aarav@example.com' ? 'text-primary' : 'text-muted-foreground'}`} />
+              <span className={`text-sm font-semibold ${selected === 'teen' && email === 'aarav@example.com' ? 'text-primary' : 'text-foreground'}`}>
                 Teen
               </span>
             </motion.button>
 
+
+
             <motion.button
               whileTap={{ scale: 0.97 }}
-              onClick={() => setSelected('parent')}
-              className={`glass-card p-5 flex flex-col items-center gap-3 transition-all duration-200 ${
-                selected === 'parent' ? 'border-primary glow-green' : 'hover:border-muted-foreground/30'
-              }`}
+              onClick={() => { setSelected('parent'); setEmail('rajesh@example.com'); setError(''); }}
+              className={`glass-card p-5 flex flex-col items-center gap-3 transition-all duration-200 ${selected === 'parent' ? 'border-primary glow-green' : 'hover:border-muted-foreground/30'
+                }`}
             >
               <Users className={`w-7 h-7 ${selected === 'parent' ? 'text-primary' : 'text-muted-foreground'}`} />
               <span className={`text-sm font-semibold ${selected === 'parent' ? 'text-primary' : 'text-foreground'}`}>
@@ -76,8 +89,9 @@ const Login = () => {
           <input
             type="email"
             placeholder="Email address"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             className="w-full px-4 py-3 rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-            defaultValue={selected === 'teen' ? 'alex@example.com' : selected === 'parent' ? 'sarah@example.com' : ''}
           />
           <input
             type="password"
@@ -87,22 +101,23 @@ const Login = () => {
           />
         </div>
 
+        {error && <p className="text-sm text-destructive text-center font-medium">{error}</p>}
+
         {/* Login button */}
         <motion.button
           whileTap={{ scale: 0.98 }}
           onClick={handleLogin}
-          disabled={!selected}
-          className={`w-full py-3.5 rounded-lg font-semibold text-sm transition-all duration-200 ${
-            selected
-              ? 'gradient-primary text-primary-foreground glow-green'
-              : 'bg-muted text-muted-foreground cursor-not-allowed'
-          }`}
+          disabled={!selected || !email || isLoading}
+          className={`w-full py-3.5 rounded-lg font-semibold text-sm transition-all duration-200 ${selected && email && !isLoading
+            ? 'gradient-primary text-primary-foreground glow-green'
+            : 'bg-muted text-muted-foreground cursor-not-allowed'
+            }`}
         >
-          Sign In as {selected === 'teen' ? 'Teen' : selected === 'parent' ? 'Parent' : '...'}
+          {isLoading ? 'Signing In...' : `Sign In as ${selected === 'teen' ? 'Teen' : selected === 'parent' ? 'Parent' : '...'}`}
         </motion.button>
 
         <p className="text-xs text-muted-foreground text-center">
-          Demo mode — select a role and sign in
+          Login runs via the Node MySQL API
         </p>
       </motion.div>
     </div>
