@@ -15,8 +15,6 @@ The system combines:
 - Simulated parental approval workflow
 
 ---
-website link:
-https://teen-shield-guard.lovable.app/
 
 
 ## 🛠️ Prerequisites
